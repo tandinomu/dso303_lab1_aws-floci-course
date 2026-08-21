@@ -1,4 +1,4 @@
-# Lab 01 — My Notes
+# Lab 01
 
 ## What I learned
 
