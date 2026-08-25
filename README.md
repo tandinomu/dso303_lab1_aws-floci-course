@@ -1,43 +1,30 @@
-# AWS CLI + Floci — USMS Course Project
+# AWS CLI + Floci
 
-Infrastructure for the **University Student Management System (USMS)**, built lab by lab
-with the AWS CLI against [Floci](https://floci.io), a local AWS emulator.
+A local AWS environment built with Floci (via Docker Compose), used to
+practise the AWS CLI and IAM by building infrastructure for a fictional
+system called USMS.
 
-## Quick start
+## How to run it
+
+Start the environment:
 
 ```bash
 source configs/course.env
 ./scripts/setup/floci-up.sh
-./scripts/utilities/whoami.sh
 ```
 
-## Daily workflow
+Stop it (data is kept):
 
 ```bash
-./scripts/setup/floci-up.sh      # start or resume (idempotent)
-# ... lab work ...
-./scripts/setup/floci-down.sh    # pause; state is kept
+./scripts/setup/floci-down.sh
 ```
 
-## Never run these
+Check everything is set up correctly:
 
-| Command | Why |
-|---|---|
-| `docker compose down -v` | `-v` deletes volumes |
-| `docker volume prune` | Unfiltered; use scripts/cleanup/floci-prune-volumes.sh |
-| `floci start ...` | Bypasses Compose; disables persistence |
-| `rm -rf ~/floci-data` | That directory is the IAM state |
+```bash
+source configs/lab-01.env
+./scripts/utilities/verify-lab-01.sh
+```
 
-## Labs
 
-| Lab | Topic | Status |
-|-----|-------|--------|
-| 01  | IAM   | [x] complete |
-| 02  | VPC   | [ ] not started |
 
-## Conventions
-
-- All resources are prefixed `usms-`
-- Region: `us-east-1`  ·  Floci account: `000000000000`
-- Storage mode: `hybrid`, bind-mounted to `~/floci-data`
-- Secrets live in `outputs/` and are **never** committed
