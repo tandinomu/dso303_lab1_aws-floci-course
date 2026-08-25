@@ -6,21 +6,18 @@ To create and manage IAM users, groups, roles, and policies using the AWS CLI ag
 
 ## 2. Introduction
 
-AWS Identity and Access Management (IAM) is the service that controls who can access an AWS account and what they are allowed to do once inside it.
+AWS IAM controls who can access AWS resources and what they can do.
 
-Its purpose is to manage authentication and authorization separately from the resources themselves. Its key features include users, groups, and roles as different types of identity; policies written in JSON to define permissions; support for both permanent credentials and temporary, auto-expiring credentials through roles; and fine-grained control down to individual actions and resources. IAM is central to cloud computing because almost nothing in a cloud account is meant to be open by default, every resource, from storage to servers, depends on IAM to decide who may touch it. 
+It uses users, groups, roles, and JSON policies to manage permissions. IAM also provides temporary credentials and allows access to be limited to specific actions and resources.
 
-Typical applications include giving employees only the access their job requires, letting applications and servers assume roles instead of storing permanent secrets,and separating auditors, developers, and administrators into different permission levels.
+IAM is commonly used to give employees the right access, allow servers to use roles instead of permanent keys, and separate access for admins, developers, and auditors.
 
 ## 3. Use Case
 
-- Managing employee identities and permissions using AWS IAM.
-- Giving an application server (EC2) temporary, scoped access to storage
-  through a role instead of a hardcoded key.
-- Allowing a scheduled job (Lambda) to write logs and read specific data
-  without being given broad account access.
-- Letting an auditor account read everything in an account without being
-  able to change anything.
+- Managing employee access and permissions using AWS IAM.
+- Giving EC2 temporary access through a role instead of a permanent key.
+- Allowing Lambda to access only the data and logs it needs.
+- Giving auditors read-only access without allowing them to make changes.
 
 ## 4. System Architecture / Design
 
@@ -32,48 +29,41 @@ against real AWS, without needing an actual AWS account.
 
 ## 5. Implementation Procedure
 
-1. Verified Docker and Docker Compose were installed and running.
-2. Created the project folder structure before starting any service.
-3. Wrote `.gitignore` and initialised Git before any secret could exist,
-   and confirmed a test secret was correctly blocked.
-4. Wrote `docker-compose.yml` with `FLOCI_STORAGE_MODE=hybrid` and an
-   absolute bind mount, since Floci defaults to in-memory storage that does
-   not survive a restart.
-5. Started Floci through Docker Compose and confirmed it was healthy.
-6. Installed AWS CLI v2 and created a named profile (`floci`) pointing at
-   the local endpoint.
-7. Confirmed the CLI reached Floci and not real AWS, using the account
-   number, a debug trace of the request URL, and by stopping Floci and
-   observing the CLI fail.
-8. Proved persistence by creating a user, restarting the container, and
-   confirming the user still existed afterward.
-9. Created three IAM groups and three IAM users, and placed each user in
-   the correct group.
-10. Attached an AWS managed read-only policy to the auditors group.
-11. Wrote and attached customer managed policies for developer access and
-    for student-data read/write, using correct bucket and object ARNs.
-12. Added an inline policy to one user for self-managing their own access
-    keys, using the `${aws:username}` policy variable.
-13. Created a new version of the developer policy rather than editing it in
-    place, keeping the old version available.
-14. Created three IAM roles — for an EC2 server, a Lambda function, and a
-    human developer — each with its own trust policy, and created an
-    instance profile for the EC2 role.
-15. Assumed the developer role using STS and obtained temporary
-    credentials, then returned to the normal identity.
-16. Created a real access key for a user, saved it directly to a file
-    rather than displaying it, and confirmed it was excluded from Git.
-17. Tested the policy simulator to check whether specific actions would be
-    allowed or denied for a given user.
-18. Recorded every ARN created into a configuration file for reuse in later
-    labs, and archived the environment's state as a backup.
-19. Ran an automated verification script checking every resource this lab
-    was meant to produce.
-20. Completed five independent exercises extending the same identity
-    structure: a new group and user, a prefix-restricted read-only policy,
-    a cross-identity role with a session limit, a least-privilege role
-    designed from a job description, and a new policy version adding
-    missing permissions.
+1. Verified Docker and Docker Compose were installed and working.
+
+2. Created the required project structure and initialized Git securely.
+
+3. Configured .gitignore to prevent secrets from being committed.
+
+4. Set up Floci with persistent hybrid storage using Docker Compose.
+
+5. Started Floci and confirmed it was running correctly.
+
+6. Installed AWS CLI v2 and configured a local floci profile.
+
+7. Verified that AWS CLI requests were reaching Floci instead of real AWS.
+
+8. Tested data persistence by restarting Floci and checking stored users.
+
+9. Created IAM groups, users, roles, and required policies.
+
+10. Configured managed and inline policies with appropriate permissions.
+
+11. Created and managed policy versions while maintaining previous versions.
+
+12. Created IAM roles for EC2, Lambda, and developers, including an EC2 instance profile.
+
+13. Tested role assumption using temporary STS credentials.
+
+14. Created an access key securely and ensured it was excluded from Git.
+
+15. Used the policy simulator to verify access permissions.
+
+16. Recorded resource ARNs and backed up the environment state.
+
+17. Ran an automated verification script to confirm all required resources.
+
+18. Completed five additional exercises covering IAM users, groups, policies, roles, and least-privilege access.
 
 ## 6. Results and Evidence
 
@@ -267,73 +257,56 @@ against real AWS, without needing an actual AWS account.
 ![Exercise 5 — verification updated](../../screenshots/exercises/e5.1.png)
 *`verify-lab-01.sh` updated to check the new default version.*
 
+# Review Questions
+
+**Q1. A colleague creates a role with a perfect permissions policy attached, but nobody can use it. What is almost certainly missing, and why does IAM separate these two documents in the first place?**
+
+The missing part is the trust policy. It decides who can assume the role, while the permissions policy decides what the role can do.
+
+**Q2. `usms-dev-01` gets AccessDenied calling `iam:CreateUser`, and also calling `dynamodb:PutItem`. Both fail identically from the user's point of view. Explain how the two failures differ internally, how you would tell them apart, and why the fix is different in each case.**
+
+iam:CreateUser has an explicit deny, while dynamodb:PutItem has an implicit deny. An implicit deny needs an Allow, while an explicit deny must be removed or changed.
+
+**Q3. Explain why attaching `usms-ec2-app-role` to the server is more secure than putting `usms-dev-01`'s access key in the application's configuration file. Give two distinct reasons.**
+
+A role uses temporary credentials, so there is no permanent key stored on the server. It also gives the server only the permissions it needs.
+
+**Q4. A student writes a policy allowing `s3:GetObject` and `s3:ListBucket` on the single resource `arn:aws:s3:::usms-student-data`. Downloads fail. Explain precisely why, and state what the corrected Resource values must be.**
+
+The problem is that the bucket ARN only points to the S3 bucket, not the files inside it. s3:ListBucket should use arn:aws:s3:::usms-student-data, while s3:GetObject should use arn:aws:s3:::usms-student-data/*.
+
+**Q5. Every command in this lab succeeded. Explain why that is not evidence that your policies are correct, and describe two concrete techniques you would use to gain confidence in a policy before deploying it to a real AWS account.**
+
+Successful commands do not prove the policies are correct because Floci does not fully enforce IAM policies. I would review the policies and use aws iam simulate-principal-policy on real AWS.
+
+**Q6. A classmate ran `floci start --persist ~/floci-data --detach`, saw the directory get created, and concluded persistence was working. Their IAM users vanished the next morning anyway. Explain the three independent reasons this could happen, and describe the single test that would have caught it in under a minute.**
+
+Persistence may fail because of the storage mode, the ~ path, or settings resetting after restart. The easiest test is to create a resource, restart Floci, and check if it still exists.
+
+
+**Q7. Argue why `docker-compose.yml` being a committed file is a security and reproducibility property, not merely a convenience. What can an instructor or a colleague verify from your repository that they could not verify from a command you typed?**
+
+A committed docker-compose.yml shows exactly how the environment is configured. Others can check the storage, volume mounts, and security settings.
+
 ### 6.2 AWS Management Console Verification
 
-Floci is a CLI/API-only emulator and does not provide a web console, so no
-console screenshots could be taken for this lab. All resource creation was
-instead verified directly through the AWS CLI's own read commands (for
-example, `aws iam get-group`, `aws iam get-role`, and
-`aws iam list-attached-user-policies`), shown above in Section 6.1, which
-serve the same verification purpose the console would on real AWS.
+![aws](../../screenshots/awsconsole.png)
 
-## 7. Analysis and Discussion
+## 7. Reflection
 
-The objective was achieved: a working local AWS environment was set up with
-data that survives a restart, and a full IAM identity structure was built
-for USMS, including groups, users, policies, roles, and an instance
-profile. The results matched the expected outcomes at each step, confirmed
-both manually and by an automated verification script that passed all 34
-checks.
+1. **What I learned about this service.** I learned that IAM uses separate trust and permission policies. I also learned about explicit and implicit denies.
 
-A few errors were encountered along the way. The project folder ended up
-nested inside several subfolders rather than directly under the home
-directory, which broke many of the file paths used throughout the lab; this
-was resolved by referencing the project root through a single environment
-variable instead of typing the path by hand. Two API calls
-(`GetAccountAuthorizationDetails` and the snapshot save feature) were not
-supported by this build of Floci and had to be skipped or replaced with a
-manual workaround. Creating a role with a 30-minute session limit also
-failed at first, since IAM enforces a real minimum of one hour on that
-setting; the limit was instead applied at the point of assuming the role.
+2. **Challenges encountered.** The main challenges were incorrect file paths and Floci limitations. These were solved by checking the configuration and using alternative methods.
 
-One observation worth noting is that Floci does not enforce IAM policies by
-default — every command succeeded regardless of how strict or loose the
-policy was written. This meant correctness had to be judged by reading the
-policy documents directly rather than by whether a command worked.
+3. **Real-world application.** IAM can be used to control access for different team members. Roles can also be used instead of permanent access keys for servers.
 
-## 8. Reflection
-
-1. **What I learned about this service.** IAM separates identity from
-   permission through two different kinds of policy — trust and
-   permissions — and evaluates every request using a strict order: deny
-   always wins, and nothing is allowed unless something explicitly says so.
-
-2. **Challenges encountered.** Working out that a nested project folder was
-   breaking file paths throughout the lab, and discovering that some AWS
-   behaviours (like session-duration limits) are stricter than they first
-   appear.
-
-3. **Real-world application.** This same structure would be used to manage
-   access for an actual team — separating admins, developers, and auditors
-   into groups, and giving servers and automated jobs roles instead of
-   permanent keys, so that a leaked credential has the smallest possible
-   blast radius.
-
-4. **What I would like to explore further.** How IAM policies are actually
-   enforced and denied on real AWS, since this could not be observed
-   directly in this emulated environment.
+4. **What I would like to explore further.** I would like to learn how IAM policies are enforced on real AWS. This would help me understand permissions and access denials better.
 
 ## 9. Conclusion
 
-This lab successfully built a durable local AWS environment and a complete
-IAM identity foundation for the USMS project, meeting all stated
-objectives. The main concepts learned were the separation of trust and
-permissions policies, the principle of least privilege, and the difference
-between explicit and implicit deny. Practical skills developed included
-writing IAM policy JSON by hand, using the AWS CLI's query and output
-options to extract and reuse values, and diagnosing configuration issues
-methodically rather than guessing. IAM is a foundational AWS service, since
-almost every other service depends on it to control who can use it and how.
+This lab successfully created a persistent AWS environment and IAM structure for the USMS project. I learned about IAM policies, least privilege, and access control.
+
+I also gained experience with IAM policy writing, AWS CLI commands, and troubleshooting. These skills are useful for managing secure AWS environments.
 
 ## 10. Appendix
 
