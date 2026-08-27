@@ -1,12 +1,12 @@
-# Lab 02 — Virtual Private Cloud and Networking
+# Lab 02 - Virtual Private Cloud and Networking
 
 ## 1. Aim / Objective
 
-To create and configure a Virtual Private Cloud (VPC) using the AWS CLI — including subnets, routing, gateways, security groups, and a network ACL — and verify the network works as designed.
+To create and configure a Virtual Private Cloud (VPC) using the AWS CLI - including subnets, routing, gateways, security groups, and a network ACL - and verify the network works as designed.
 
 ## 2. Introduction
 
-Amazon VPC lets an account create an isolated, private network in AWS to launch resources into. It controls IP address ranges, subnets, routing, and access before any compute or storage is created. Key features include custom CIDR blocks, public and private subnets, internet and NAT gateways, security groups and network ACLs, and endpoints for reaching other AWS services privately. VPC is foundational to cloud computing because almost every other AWS service depends on it to decide what a resource can reach and what can reach it. It is typically used to separate a public web tier from a private database tier, and to give private resources controlled outbound access without exposing them to the internet.
+Amazon VPC lets an AWS account create its own private network to launch resources into, controlling IP ranges, subnets, routing, and access. Key features include custom CIDR blocks, public and private subnets, internet and NAT gateways, security groups, network ACLs, and private endpoints to other AWS services. It is foundational because almost every other AWS service depends on it to control what can be reached and by whom. It's commonly used to separate a public web tier from a private database tier, giving the private tier controlled outbound access without exposing it to the internet.
 
 ## 3. Use Case
 
@@ -17,170 +17,215 @@ Amazon VPC lets an account create an isolated, private network in AWS to launch 
 
 ## 4. System Architecture / Design
 
+![USMS VPC architecture](../../screenshots/lab-02/vpc/architecture.png)
 
-Public subnets route to the internet gateway. Private subnets route outbound traffic through a NAT gateway, so they can reach the internet without being reachable from it. A gateway endpoint lets private subnets reach S3 directly, without the internet or the NAT gateway.
+Public subnets route to the internet gateway. The private route table's default route points at usms-nat, which lives in the public subnet, this is what lets the private subnets reach the internet outbound without ever being reachable from it. usms-app-sg is attached to the public-tier instances and usms-db-sg is attached to the private-tier instances, with the database group sourcing its access from the app group rather than a CIDR block.
 
 ## 5. Implementation Procedure
 
-1. Resumed Floci and confirmed storage was still durable.
-2. Loaded Lab 01's environment and confirmed identity.
-3. Assumed `usms-developer-role` and created `usms-vpc` (10.0.0.0/16), then restored the normal identity.
-4. Enabled DNS support and DNS hostnames.
-5. Created and attached an internet gateway.
-6. Created a public subnet and turned on auto-assign public IPv4.
-7. Created a private subnet, leaving auto-assign public IP off.
-8. Created a public route table with a route to the internet gateway, and associated the public subnet.
-9. Created a private route table with no internet route, and associated the private subnet.
-10. Proved the two subnets were different by reading back their actual routes.
-11. Created `usms-app-sg` (HTTP, HTTPS, internal SSH) and `usms-db-sg` (PostgreSQL sourced from `usms-app-sg`, not a CIDR).
-12. Created and configured `usms-private-nacl`, then associated it with the private subnet.
-13. Created a NAT gateway with an Elastic IP, and routed the private subnet through it.
-14. Created an S3 gateway endpoint for the private route table.
-15. Audited that every resource was tagged `Project=USMS`.
-16. Proved the network survived a full restart.
-17. Recorded every resource ID into `configs/lab-02.env`.
-18. Committed the work and built a verification script.
-19. Completed five exercises: a third public subnet, a bastion security group, a subnet-classification script, a design exercise with a new security group, and a second Availability Zone for the private tier.
+1. Resumed Floci and confirmed storage was durable.
+2. Loaded Lab 01 and confirmed identity.
+3. Created the `usms-vpc` VPC and restored the normal identity.
+4. Enabled DNS support and hostnames.
+5. Created and attached an Internet Gateway.
+6. Created and configured the public subnet.
+7. Created the private subnet.
+8. Created public and private route tables.
+9. Verified the subnet routes were different.
+10. Created application and database security groups.
+11. Created and configured the private NACL.
+12. Created a NAT Gateway and routed private traffic through it.
+13. Created an S3 gateway endpoint.
+14. Verified all resources had the `Project=USMS` tag.
+15. Confirmed the network survived a restart.
+16. Recorded resource IDs in `configs/lab-02.env`.
+17. Committed the work and created a verification script.
+18. Completed all five additional exercises.
 
 ## 6. Results and Evidence
 
 ### 6.1 CLI / SDK Output
 
 ![Environment resumed](../../screenshots/lab-02/vpc/0.png)
+
 *Floci resumed, storage confirmed durable.*
 
 ![Identity confirmed](../../screenshots/lab-02/vpc/1.png)
+
 *Lab 01 variables sourced, account confirmed.*
 
 ![Policy checked before use](../../screenshots/lab-02/vpc/2.png)
+
 *Developer policy's active version read.*
 
 ![Role assumed](../../screenshots/lab-02/vpc/3.1.png)
+
 *Temporary credentials obtained.*
 
 ![Identity as assumed role](../../screenshots/lab-02/vpc/3.2.png)
+
 *Caller identity shows the assumed role.*
 
 ![VPC created](../../screenshots/lab-02/vpc/3.3.png)
+
 *usms-vpc created with CIDR 10.0.0.0/16.*
 
 ![Identity restored](../../screenshots/lab-02/vpc/4.png)
+
 *Back to the normal account identity.*
 
 ![DNS enabled](../../screenshots/lab-02/vpc/5.png)
+
 *DNS support and hostnames both True.*
 
 ![Internet gateway attached](../../screenshots/lab-02/vpc/6.png)
+
 *usms-igw attached to the VPC.*
 
 ![Public subnet created](../../screenshots/lab-02/vpc/7.png)
+
 *usms-public-subnet-a created.*
 
 ![Public IP auto-assign on](../../screenshots/lab-02/vpc/8.png)
+
 *Confirmed True for the public subnet.*
 
 ![Private subnet created](../../screenshots/lab-02/vpc/9.png)
+
 *usms-private-subnet-a created, no public IP.*
 
 ![Public route table created](../../screenshots/lab-02/vpc/10.png)
+
 *Default route to the internet gateway.*
 
 ![Public subnet associated](../../screenshots/lab-02/vpc/11.png)
+
 *Associated with the public route table.*
 
 ![Second public subnet](../../screenshots/lab-02/vpc/11(myturn).png)
+
 *usms-public-subnet-b created and associated.*
 
 ![Private route table created](../../screenshots/lab-02/vpc/12.png)
+
 *Associated with the private subnet, no internet route.*
 
 ![Public vs private proven](../../screenshots/lab-02/vpc/13.png)
+
 *Public subnet routes to the igw; private shows no route.*
 
 ![App security group created](../../screenshots/lab-02/vpc/14.png)
+
 *usms-app-sg with HTTP and internal SSH.*
 
 ![HTTPS rule added](../../screenshots/lab-02/vpc/14(myturn).png)
+
 *Port 443 added with a description.*
 
 ![DB security group created](../../screenshots/lab-02/vpc/15.1.png)
+
 *usms-db-sg created.*
 
 ![Group-referenced rule written](../../screenshots/lab-02/vpc/15.2.png)
+
 *Rule sourced from usms-app-sg, not a CIDR.*
 
 ![Rule applied and verified](../../screenshots/lab-02/vpc/15.3.png)
+
 *Confirmed group-referenced, not address-based.*
 
 ![All security groups read back](../../screenshots/lab-02/vpc/16.png)
+
 *Three groups in the VPC.*
 
 ![Default NACL inspected](../../screenshots/lab-02/vpc/17.1.png)
+
 *Default allow and implicit deny rules seen.*
 
 ![Private NACL created](../../screenshots/lab-02/vpc/17.2.png)
+
 *usms-private-nacl created.*
 
 ![NACL rules written](../../screenshots/lab-02/vpc/17.3.png)
+
 *Inbound/outbound rules, including the ephemeral-port rule.*
 
 ![NACL associated](../../screenshots/lab-02/vpc/18.png)
+
 *Replacing the default NACL on the private subnet.*
 
 ![Elastic IP allocated](../../screenshots/lab-02/vpc/19.1.png)
+
 *Reserved for the NAT gateway.*
 
 ![NAT gateway created](../../screenshots/lab-02/vpc/19.2.png)
+
 *usms-nat created in the public subnet.*
 
 ![NAT gateway available](../../screenshots/lab-02/vpc/19.3.png)
+
 *Reached the available state.*
 
 ![Private route pointed at NAT](../../screenshots/lab-02/vpc/20.png)
+
 *Default route now targets the NAT gateway.*
 
 ![S3 endpoint created](../../screenshots/lab-02/vpc/21.png)
+
 *usms-s3-endpoint attached to the private route table.*
 
 ![Tag audit](../../screenshots/lab-02/vpc/22.png)
+
 *Every resource confirmed tagged Project=USMS.*
 
 ![Subnet inventory](../../screenshots/lab-02/vpc/22(myturn).png)
+
 *Private subnets listed before public ones.*
 
 ![Pre-restart state recorded](../../screenshots/lab-02/vpc/23.1.png)
+
 *VPC, subnet, and security group counts saved.*
 
 ![Floci restarted](../../screenshots/lab-02/vpc/23.2.png)
+
 *Environment stopped and started again.*
 
 ![Persistence proven](../../screenshots/lab-02/vpc/23.3.png)
+
 *Same VPC found by tag, counts unchanged.*
 
 ![lab-02.env generated](../../screenshots/lab-02/vpc/24.png)
+
 *All resource IDs saved for later labs.*
 
 ![Work committed](../../screenshots/lab-02/vpc/25.1.png)
+
 *Lab 02 committed to Git.*
 
 ![Final verification](../../screenshots/lab-02/verification/verification9.2.png)
-*verify-lab-02.sh — PASS=33, FAIL=0.*
+
+*verify-lab-02.sh - PASS=33, FAIL=0.*
 
 **Exercises**
 
-![Exercise 1](../../screenshots/lab-02/vpc/exercise1.png)
+![Exercise 1](../../screenshots/exercises/exercise1.png)
+
 *Third public subnet created and associated.*
 
-![Exercise 2](../../screenshots/lab-02/vpc/exercise2.png)
+![Exercise 2](../../screenshots/exercises/exercise2.png)
+
 *Bastion security group created; app SG's SSH switched to a group reference.*
 
-![Exercise 3](../../screenshots/lab-02/vpc/exercise3.png)
+![Exercise 3](../../screenshots/exercises/exercise3.png)
+
 *Script classifies each subnet from its route table alone.*
 
-![Exercise 4](../../screenshots/lab-02/vpc/exercise4.png)
+![Exercise 4](../../screenshots/exercises/exercise4.png)
+
 *New security group created for a designed service; practice subnet removed.*
 
-![Exercise 5](../../screenshots/lab-02/vpc/exercise5.png)
+![Exercise 5](../../screenshots/exercises/exercise5.png)
+
 *Second private subnet created under the assumed role.*
 
 ### 6.2 AWS Management Console Verification
@@ -199,7 +244,7 @@ A few errors came up. Two security-group rule removals reported success but the 
 
 2. **Challenges.** Telling apart a command that failed from one that succeeded but was reported inconsistently, and learning to check the same fact more than one way before trusting it.
 
-3. **Real-world application.** This same layout — public tier, private tier, NAT for outbound access, and a service endpoint — is the standard shape of a real AWS network for any app with a public front end and a private backend.
+3. **Real-world application.** This same layout, public tier, private tier, NAT for outbound access, and a service endpoint, is the standard shape of a real AWS network for any app with a public front end and a private backend.
 
 4. **What I'd explore further.** How security groups and NACLs actually behave against real traffic, since that could not be observed here.
 
@@ -214,5 +259,5 @@ This lab built a two-tier VPC for the USMS project, with public and private subn
 - Verification script: `scripts/utilities/verify-lab-02.sh`
 - Classification script (Exercise 3): `scripts/utilities/lab-02-network-report.sh`
 - Cleanup script (not run): `scripts/cleanup/lab-02-cleanup.sh`
-- Screenshots: `screenshots/lab-02/vpc/`, `screenshots/exercises/`
+- Screenshots: `screenshots/vpc/`
 - Notes and review questions: `notes/lab-02-notes.md`
