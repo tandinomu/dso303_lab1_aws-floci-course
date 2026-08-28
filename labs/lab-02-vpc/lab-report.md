@@ -208,29 +208,27 @@ Public subnets route to the internet gateway. The private route table's default 
 
 **Exercises**
 
-![Exercise 1](../../screenshots/exercises/exercise1.png)
+![Exercise 1](../../screenshots/lab-02/vpc/exercise1.png)
 
 *Third public subnet created and associated.*
 
-![Exercise 2](../../screenshots/exercises/exercise2.png)
+![Exercise 2](../../screenshots//lab-02/vpc/exercise2.png)
 
 *Bastion security group created; app SG's SSH switched to a group reference.*
 
-![Exercise 3](../../screenshots/exercises/exercise3.png)
+![Exercise 3](../../screenshots/lab-02/vpc/exercise3.png)
 
 *Script classifies each subnet from its route table alone.*
 
-![Exercise 4](../../screenshots/exercises/exercise4.png)
+![Exercise 4](../../screenshots/lab-02/vpc/exercise4.png)
 
 *New security group created for a designed service; practice subnet removed.*
 
-![Exercise 5](../../screenshots/exercises/exercise5.png)
+![Exercise 5](../../screenshots/lab-02/vpc/exercise5.png)
 
 *Second private subnet created under the assumed role.*
 
 ### 6.2 AWS Management Console Verification
-
-Floci is CLI/API-only and has no web console, so no console screenshots exist. Every resource was verified instead through the AWS CLI's own read commands, shown above, which serve the same purpose.
 
 ## 7. Analysis and Discussion
 
@@ -240,17 +238,13 @@ A few errors came up. Two security-group rule removals reported success but the 
 
 ## 8. Reflection
 
-1. **What I learned.** A subnet is public or private purely because of its route table, not its name or settings. Security groups and NACLs work differently, and referencing a security group as a source is safer than hard-coding an address range.
+Some security group and NACL changes appeared unsuccessful, but a second check confirmed they had worked. An old subnet ID also caused the wrong subnet to be disconnected from its route table, which was later identified and fixed. The main lesson was to always verify changes using a second check and avoid relying on outdated IDs or variables.
 
-2. **Challenges.** Telling apart a command that failed from one that succeeded but was reported inconsistently, and learning to check the same fact more than one way before trusting it.
-
-3. **Real-world application.** This same layout, public tier, private tier, NAT for outbound access, and a service endpoint, is the standard shape of a real AWS network for any app with a public front end and a private backend.
-
-4. **What I'd explore further.** How security groups and NACLs actually behave against real traffic, since that could not be observed here.
 
 ## 9. Conclusion
 
-This lab built a two-tier VPC for the USMS project, with public and private subnets across two Availability Zones, correct routing, layered firewalls, a NAT gateway, and an S3 endpoint, meeting all objectives. The key concepts learned were that a subnet's public/private status comes only from its route table, the difference between stateful security groups and stateless NACLs, and the importance of reading a claim back from the API rather than trusting a command's success alone. Skills developed included capturing and reusing resource IDs, shaping API output, and diagnosing inconsistent results by cross-checking commands. VPC is foundational, since nearly every other AWS service depends on it.
+This lab built a two-tier VPC for the USMS project with public and private subnets, routing, security groups, NACLs, a NAT gateway, and an S3 endpoint. I learned how subnet routing works, the difference between security groups and NACLs, and the importance of verifying changes. I also improved my skills in managing AWS resources and IDs.
+
 
 ## 10. Appendix
 
