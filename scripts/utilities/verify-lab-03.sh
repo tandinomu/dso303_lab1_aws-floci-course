@@ -28,6 +28,7 @@ check() {
   else printf "  FAIL %s\n" "$1"; FAIL=$((FAIL+1)); fi
 }
 
+# Helper: one instance field, by instance id.
 q() { aws ec2 describe-instances --instance-ids "$1" \
         --query "Reservations[0].Instances[0].$2" --output text; }
 

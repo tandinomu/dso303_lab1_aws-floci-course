@@ -1,6 +1,5 @@
 # Lab 03: Amazon EC2 and Deploying the USMS Application
 
-**Course:** DSO303 | **Environment:** Floci (local AWS emulator), AWS CLI v2, macOS
 
 ## 1. Aim / Objective
 
