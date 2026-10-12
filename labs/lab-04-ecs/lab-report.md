@@ -1,180 +1,215 @@
-# Lab 04 - Amazon ECS: Deploying the USMS Enrolment Service on Fargate
-
-**Course:** DSO303 | **Environment:** Floci (local AWS emulator) on Docker Compose, AWS CLI v2, macOS
-
----
+# Lab 04: Amazon ECS and the USMS Enrolment Service
 
 ## 1. Aim / Objective
 
-To deploy the USMS enrolment service on Amazon ECS using the Fargate launch type, by creating an ECS cluster, a CloudWatch Logs log group, a task execution role, a task role, a security group, and a task definition, and by creating a service that maintains two running tasks across the private subnets established in Lab 02.
+To run the USMS enrolment service on Amazon ECS with Fargate, using a cluster, a log group, two IAM roles, a security group, a task definition and a service with two tasks in the private subnets from Lab 02.
 
 ## 2. Introduction
 
-Amazon Elastic Container Service (ECS) is a fully managed container orchestration service provided by AWS. It is organised around four principal objects:
-
-- **Cluster:** a logical grouping in which services and tasks are placed.
-- **Task definition:** a versioned, immutable blueprint that specifies the container image, CPU and memory allocation, port mappings, IAM roles and logging configuration. A task definition cannot be modified; changes are made by registering a new revision.
-- **Task:** a single running instance of a task definition.
-- **Service:** a controller that ensures the number of running tasks matches the specified desired count, and replaces any task that stops or fails.
-
-The Fargate launch type removes the need to provision or manage EC2 instances, since AWS supplies and maintains the underlying compute capacity. However, Fargate does not remove the networking layer: each task operating in `awsvpc` mode receives its own elastic network interface, private IP address and security group, and is subject to the route tables of the VPC. ECS is significant in cloud computing because it enables applications to be self-healing, easily updated and scalable without manual server administration.
+Amazon ECS runs containers. It has four parts: a **cluster** (a group), a **task definition** (a blueprint that cannot be edited, only replaced by a new revision), a **task** (one running copy), and a **service** (keeps the right number of tasks running). With **Fargate**, AWS provides the servers, but each task still gets its own private IP and security group in the VPC. ECS makes applications self healing and easy to scale.
 
 ## 3. Use Case
 
-Amazon ECS is commonly used to run APIs and microservices, such as the USMS enrolment API, where individual components of an application are deployed and managed independently. It is well suited to workloads with pronounced demand peaks, such as university enrolment periods, in which a large volume of requests arrives within a short time. ECS is also used for batch processing and scheduled jobs that do not require permanently running servers, and for controlled application releases, in which a new task definition revision is deployed while the previous revision remains available for rollback.
+1. Running APIs such as the USMS enrolment service.
+2. Adding tasks for busy periods like enrolment week.
+3. Releasing new versions by moving a service to a new revision.
 
 ## 4. System Architecture / Design
 
-```mermaid
-flowchart TB
-    WEB["usms-web-01<br/>(usms-app-sg)"] -->|TCP 80| SG{{"usms-enrolment-sg"}}
-    SG --> T1["Task 1<br/>private subnet a"]
-    SG --> T2["Task 2<br/>private subnet b"]
-    T1 & T2 -->|image pull| NAT[usms-nat] --> IGW[usms-igw] --> ECR[(public.ecr.aws)]
-    T1 & T2 -->|logs| LG[(/usms/ecs/enrolment)]
-    SVC["usms-enrolment-svc<br/>desiredCount = 2"] -.manages.-> T1 & T2
-    CL[usms-ecs-cluster] --> SVC
-    SVC --> TD["usms-enrolment:1<br/>Fargate 256 CPU / 512 MiB"]
-    TD --> EX[usms-ecs-exec-role]
-    TD --> TR["usms-ecs-task-role<br/>USMSStudentDataReadWrite"]
-```
 
-The web tier instance from Lab 03 is the only permitted source of traffic to the enrolment tasks, on TCP port 80. The two tasks are placed in separate private subnets in different Availability Zones, so the service remains available if one zone fails. The tasks are not assigned public IP addresses. Container images are pulled through the private route table, NAT gateway and internet gateway created in Lab 02. Container output is sent to the CloudWatch Logs group. The task execution role is used to start each task, and the task role provides the identity under which the application runs.
+Only the web server can reach the tasks. The tasks have no public IP and pull images through the NAT gateway.
 
 ## 5. Implementation Procedure
 
-**Step 1 – Environment resumption.** Floci was started and the environment files from Labs 01 to 03 were loaded. The eight values required by the lab, including both private subnet IDs and the web tier security group, were printed to confirm that none were empty.
+1. **Resumed the environment** and loaded the env files from Labs 01 to 03.
+2. **Checked Labs 02 and 03** with their verification scripts.
+3. **Probed Floci support** for ECS, auto scaling and CloudWatch.
+4. **Created the cluster** `usms-ecs-cluster` as the developer role.
+5. **Created the log group** `/usms/ecs/enrolment` with 7 day retention.
+6. **Created the execution role** `usms-ecs-exec-role`.
+7. **Created the task role** `usms-ecs-task-role` with Lab 01's S3 policy.
+8. **Created the security group** `usms-enrolment-sg`, allowing port 80 only from the web tier.
+9. **Registered the task definition** `usms-enrolment:1`.
+10. **Created the service** `usms-enrolment-svc` with 2 tasks.
+11. **Checked the service**, and scaled it 2 to 3 to 2 by hand (Your turn).
+12. **Saved outputs** to `configs/lab-04.env`.
+13. **Committed** the lab files.
 
-**Step 2 – Verification of previous labs.** The Lab 02 and Lab 03 verification scripts were executed to confirm that the underlying network and compute resources were intact before any new resources were created.
-
-**Step 3 – Floci capability probe.** The level of support for ECS, Application Auto Scaling, CloudWatch and CloudWatch Logs in the Floci build was tested, and the resulting support path was recorded.
-
-**Step 4 – Cluster creation.** The `usms-developer-role` was assumed, and `usms-ecs-cluster` was created with Container Insights enabled. The temporary credentials were then removed to restore the default identity.
-
-**Step 5 – Log group creation.** The log group `/usms/ecs/enrolment` was created and a 7-day retention policy was applied using a separate command.
-
-**Step 6 – Task execution role.** A trust policy permitting `ecs-tasks.amazonaws.com` to assume the role was written, and `usms-ecs-exec-role` was created. A least-privilege customer managed policy, `USMSECSTaskExecution`, was attached, permitting image pulls and log writes restricted to the single log group.
-
-**Step 7 – Task role.** `usms-ecs-task-role` was created using the same trust policy, and the existing `USMSStudentDataReadWrite` policy from Lab 01 was attached without modification.
-
-**Step 8 – Security group.** `usms-enrolment-sg` was created with a single inbound rule permitting TCP port 80 from `usms-app-sg`. A security group reference was used in place of a CIDR range so that the rule remains valid as task IP addresses change.
-
-**Step 9 – Task definition.** A task definition document specifying the Fargate launch type, `awsvpc` network mode, 256 CPU units, 512 MiB of memory, both IAM roles and the `awslogs` configuration was written, checked for unexpanded variables, and registered as `usms-enrolment:1`.
-
-**Step 10 – Service creation.** `usms-enrolment-svc` was created with a desired count of two, distributed across both private subnets, with public IP assignment disabled.
-
-**Step 11 – Service inspection.** The desired, running and pending counts and the service status were read back. The desired count was then changed manually to three and returned to two.
-
-**Step 12 – Recording outputs.** `configs/lab-04.env` was generated by retrieving each value from the API rather than from shell variables, for use in subsequent labs.
-
-**Step 13 – Version control.** The staging area was inspected to confirm that no files from `outputs/` were included, and the lab files were committed.
-
-A verification script, `verify-lab-04.sh`, was also created to check all resources and their configuration. An end-of-course cleanup script, `lab-04-cleanup.sh`, was written and syntax-checked but not executed.
+**Exercises:** (1) created a second service, (2) moved the service to a new revision, (3) wrote an inventory script, (4) planned enrolment week capacity and deleted the second service, (5) linked the security group back to Lab 03.
 
 ## 6. Results and Evidence
 
-### 6.1 CLI / SDK Output
+### 6.1 CLI Output
 
-**Step 1 – Environment loaded**
+**Step 1: Environment loaded**
+![1](../../screenshots/lab-04/1.png)
 
-The identity check confirmed operation against the Floci account (`000000000000`), and all eight required values were populated.
+**Step 2: Earlier labs verified**
+![2](../../screenshots/lab-04/2.png)
 
-**Step 2 – Previous labs verified**
+**Step 3: Floci support probe**
+![3](../../screenshots/lab-04/3.png)
+![3.2](../../screenshots/lab-04/3.2.png)
 
-Both verification scripts were executed before any Lab 04 resource was created, with `FAIL=0` required on each.
+**Step 4: Cluster created**
+![4.1](../../screenshots/lab-04/4.1.png)
+![4.2](../../screenshots/lab-04/4.2.png)
+![4.3](../../screenshots/lab-04/4.3.png)
+![4.4](../../screenshots/lab-04/4.4.png)
 
-**Step 3 – Floci capability probe**
+**Step 5: Log group**
+![5](../../screenshots/lab-04/5.png)
 
-The probe reported the availability of each service, and the corresponding support path was recorded for use in Lab 06.
+**Step 6: Execution role**
+![6.1](../../screenshots/lab-04/6.1.png)
+![6.2](../../screenshots/lab-04/6.2.png)
+![6.3](../../screenshots/lab-04/6.3.png)
 
-**Step 4 – Cluster created under the developer role**
+**Step 7: Task role**
+![7](../../screenshots/lab-04/7.png)
 
-The caller identity returned an `assumed-role/usms-developer-role` ARN, confirming that the cluster was created under the least-privileged role. The cluster was reported as ACTIVE with no services or running tasks.
+**Step 8: Security group**
+![8](../../screenshots/lab-04/8.png)
 
-**Step 5 – Log group with retention**
+**Step 9: Task definition**
+![9.1](../../screenshots/lab-04/9.1.png)
+![9.2](../../screenshots/lab-04/9.2.png)
 
-The log group was listed with a retention period of 7 days and no stored data.
+**Step 10: Service created**
+![10](../../screenshots/lab-04/10.png)
 
-**Step 6 – Task execution role**
+**Step 11: Service counts**
+![11](../../screenshots/lab-04/11.png)
 
-The role's trust principal was confirmed as `ecs-tasks.amazonaws.com`, and `USMSECSTaskExecution` was listed as an attached policy.
+**Step 11: Your turn, scaling by hand**
+![11 your turn 1](<../../screenshots/lab-04/11(myturn)-1.png>)
+![11 your turn 2](<../../screenshots/lab-04/11(myturn)-2.png>)
 
-**Step 7 – Task role with reused policy**
+**Step 12: Env file**
+![12](../../screenshots/lab-04/12.png)
 
-`USMSStudentDataReadWrite` was listed as attached to the task role. The retrieved policy document was identical to the one traced from the EC2 instance in Lab 03.
-
-**Step 8 – Enrolment security group**
-
-The security group contained a single inbound rule on port 80, with the web tier security group ID as its source and no CIDR range.
-
-**Step 9 – Task definition registered**
-
-`usms-enrolment:1` was reported as ACTIVE, with `awsvpc` networking, Fargate compatibility, and distinct ARNs for the execution role and the task role.
-
-**Step 10 – Service created**
-
-The service ARN followed the format `service/usms-ecs-cluster/usms-enrolment-svc`, which is required for the scalable target registration in Lab 06.
-
-**Step 11 – Service state and manual scaling**
-
-The service reported a desired count of two, both private subnet IDs, and public IP assignment set to DISABLED. Adjusting the desired count to three and back to two produced corresponding entries in the service events log.
-
-**Step 12 – Environment file**
-
-The validation check confirmed that all values were populated, and the file contained 17 exported variables.
-
-**Step 13 – Commit**
-
-`git check-ignore` identified the rule excluding the assumed-role credentials file, and only the intended lab files were committed.
+**Step 13: Commit**
+![13.1](../../screenshots/lab-04/13.1.png)
+![13](../../screenshots/lab-04/13.png)
 
 **Verification script**
+![verify](../../screenshots/lab-04/verify.png)
+![verify 2](../../screenshots/lab-04/verify-2.png)
 
-`verify-lab-04.sh` evaluates 38 checks covering the environment, dependencies on previous labs, IAM, logging, ECS, networking and repository hygiene.
+**Cleanup script (not run)**
+![cleanup](../../screenshots/lab-04/cleanup.png)
 
-### 6.2 AWS Management Console Verification
+### 6.2 Exercises
 
-Floci operates as a local emulator and does not provide an AWS Management Console. All resources were therefore verified using the equivalent AWS CLI `describe` operations shown in Section 6.1, which return the same information displayed in the console.
+**Exercise 1: Second service**
+![ex1 create](../../screenshots/lab-04/ex1-create.png)
+![ex1 verify](../../screenshots/lab-04/ex1-verify.png)
+
+**Exercise 2: Revision 2**
+![ex2 diff](../../screenshots/lab-04/ex2-diff.png)
+![ex2 update](../../screenshots/lab-04/ex2-update.png)
+![ex2 revisions](../../screenshots/lab-04/ex2-revisions.png)
+
+**Exercise 3: Inventory report**
+![ex3](../../screenshots/lab-04/ex3.png)
+
+**Exercise 4: Second service deleted**
+![ex4 delete](../../screenshots/lab-04/ex4-delete.png)
+![ex4 verify](../../screenshots/lab-04/ex4-verify.png)
+
+**Exercise 5: Link to Lab 03**
+![ex5 lookup](../../screenshots/lab-04/ex5-lookup.png)
+![ex5 linkage](../../screenshots/lab-04/ex5-linkage.png)
+
+### 6.3 AWS Management Console Verification
+
+Floci has no AWS Console, so all resources were checked with AWS CLI `describe` commands.
 
 ## 7. Analysis and Discussion
 
-The practical produced a complete and correctly configured ECS deployment. The service is placed in the intended private subnets, protected by a security group that accepts traffic only from the web tier, assigned two distinct IAM roles, and configured to send its logs to a dedicated log group with defined retention. The service is not yet reachable from outside the VPC. This is by design, as a load balancer is introduced in Lab 05.
+**Results.** Everything was built and verified. Floci ran the containers: the inventory showed `running=2`. The verification script reported `PASS=37 FAIL=1`. The one failure is a false positive: Git tracks only the empty file `outputs/.gitkeep`, which the course commits on purpose, and no secrets are tracked.
 
-The principal difference between the emulated and real environments concerns container execution. On AWS, the running count would reach two within approximately one minute as Fargate pulled the image and started the tasks. On Floci, the running count may remain at zero, since some builds store the service configuration without launching containers. Because the lab's verification is based on the desired count and static configuration rather than live containers, this behaviour does not prevent completion, but it is recorded as a limitation. Container Insights metrics and task credential delivery are similarly unavailable in the emulator.
+**Floci support.** Path A: ECS and auto scaling work, but scheduled scaling does not. The probe showed `describe-services` as not available only because the test cluster does not exist.
 
-Several configuration details in this lab are prone to error:
-- CPU and memory values must be supplied as strings rather than numbers.
-- The trust principal must be `ecs-tasks.amazonaws.com`, not `ecs.amazonaws.com`.
-- The network configuration string must not contain spaces or quoted subnet identifiers.
-- The temporary credentials from Step 4 must be unset afterwards, to avoid `ExpiredToken` errors that do not indicate their cause.
+**Errors fixed.**
+1. **Step 7:** attaching the S3 policy failed because `USMS_POLICY_S3_RW` already held the full ARN, so the prefix was added twice. The variable was used directly.
+2. **Step 13:** the verify and cleanup scripts had to be created before committing.
 
-Further observations were made during the implementation. Tagging conventions differ between services: ECS uses lower-case `key` and `value`, EC2 and IAM use capitalised keys, and CloudWatch Logs uses a plain map. The NAT gateway created in Lab 02 is the component that allows tasks in private subnets to retrieve container images. In addition, the S3 access policy defined in Lab 01 is now applied to both an EC2 instance and an ECS task without modification, demonstrating that the same permissions can be delivered to different compute types through different mechanisms.
+**Floci limitations.**
+1. Scheduled scaling actions are not supported.
+2. A service created with only a family name shows `usms-enrolment` instead of a revision number.
+3. The security group filter in Exercise 5 also returned the database servers, which use a different group.
+
+**Exercise answers.**
+1. **Exercise 2:** the service's `taskDefinition` changed from `:1` to `:2`, but revision 1 stayed the same and `ACTIVE`, because revisions cannot be edited.
+2. **Exercise 3:** `set -e` is not used, so one service with missing data does not stop the whole report.
+3. **Exercise 5:** the security group rule traces back to `usms-web-01`, which matches `lab-03.env`, so the verdict is **LOOP CLOSED**. This rule is temporary, because Lab 05 replaces it with the load balancer.
+
+**Exercise 4: Enrolment week plan.** A fixed count of 2 cannot handle the 08:00 rush, because nothing changes it except a person. Assuming a peak of 250 requests per second and 25 per task:
+
+| Setting | Value | Reason |
+|---|---|---|
+| Minimum | 2 | One task per Availability Zone |
+| Maximum | 12 | 250 ÷ 25 = 10, plus 2 spare |
+| Scheduled floor | 10, Monday 07:45 to 09:00 | Tasks must be running before the rush |
+
+Cost per task is about $10.63 per month (Fargate: $0.0405 per vCPU-hour and $0.00445 per GB-hour). The options compare like this:
+
+| Option | Monthly cost |
+|---|---|
+| Fixed at 2 tasks | $21.27 |
+| Fixed at 12 tasks | $127.59 |
+| Proposed plan | about $21.85 |
+
+The plan costs almost the same as today but covers the peak. Deleted: `usms-results-svc`, scaled to 0 and then removed, with verification unchanged.
 
 ## 8. Reflection
 
-**1. What was learned about this AWS service?**
-The practical clarified the distinct roles of the four ECS objects, and in particular that scaling affects only the desired count of a service, never the task definition itself. It also clarified the separation between the task execution role, which is used before the application starts to pull the image and initialise logging, and the task role, which provides the application's runtime permissions.
+**1. What was learned about this AWS service?** ECS has four separate parts, and scaling only changes a service's desired count. The execution role starts the task, and the task role is what the app runs as.
 
-**2. What challenges were encountered?**
-The main conceptual challenge was distinguishing the two IAM roles, since both share an identical trust policy and differ only in purpose. Practical challenges included the precise syntax required for the network configuration and the inconsistent tagging formats across services. A further challenge was distinguishing outcomes observable in the emulator from those that could only be reasoned about.
+**2. What challenges were encountered?** Telling the two roles apart, the network and tag syntax, and the doubled ARN in Step 7.
 
-**3. How would this service be applied in a real-world cloud environment?**
-In a production environment, application APIs would be deployed as ECS services on Fargate within private subnets, fronted by a load balancer. Each service would be assigned a dedicated task role following the principle of least privilege, security group rules would reference other security groups rather than IP ranges, log groups would carry appropriate retention periods, and auto scaling would be applied to respond to changes in demand.
+**3. How would this service be applied in a real world cloud environment?** Run APIs as Fargate services in private subnets behind a load balancer, with auto scaling for busy times.
 
-**4. What additional concepts or features warrant further exploration?**
-Areas for further study include load balancer integration with ECS services, Application Auto Scaling based on utilisation metrics, rolling deployments between task definition revisions, and the use of Fargate Spot to reduce cost.
+**4. What additional concepts or features warrant further exploration?** Load balancers (Lab 05), auto scaling (Lab 06) and Fargate Spot.
 
 ## 9. Conclusion
 
-This practical deployed the USMS enrolment service on Amazon ECS using the Fargate launch type. A cluster, a log group with a retention policy, separate task execution and task roles, a restrictive security group, a task definition and a service maintaining two tasks across two Availability Zones in private subnets were created and verified. The objectives of the practical were achieved, and the deployment provides the foundation for the load balancer integration in Lab 05.
-
-The key concepts covered were the four ECS objects and their responsibilities, the distinction between the two ECS IAM roles, the use of security group references for dynamic workloads, and the continued dependence of Fargate tasks on the VPC networking layer. Skills were developed in writing task definitions, configuring IAM roles for containers, and verifying configuration through the AWS CLI. Amazon ECS is an important service for building reliable, self-healing applications that can be scaled without manual server management.
+The USMS enrolment service now runs on ECS with Fargate, in two private subnets and reachable only from the web tier. All steps and five exercises were completed, so the objectives were met. The key lesson is that a service keeps a fixed number of tasks running, and auto scaling in Lab 06 is what will let it react to demand.
 
 ## 10. Appendix
 
-- `policies/trust-ecs-tasks.json` – trust policy for both ECS roles
-- `policies/usms-ecs-task-execution-policy.json` – task execution role permissions
-- `policies/usms-enrolment-sg-ingress.json` – security group ingress rule
-- `templates/lab-04-taskdef.json` – task definition document
-- `configs/lab-04.env` – recorded resource names and ARNs
-- `scripts/utilities/verify-lab-04.sh` – verification script
-- `scripts/cleanup/lab-04-cleanup.sh` – cleanup script (not executed)
+### Review Questions
+
+**1. A colleague says "I put auto scaling on the task definition." Explain, in three or four sentences, every way that sentence is wrong: name what auto scaling will actually be attached to in Lab 06, what it actually modifies, and which of ECS's four objects does the work of making reality match. Then say what observable consequence follows from the fact that ECS itself will know nothing about the scalable target.**
+
+Auto scaling is not attached to the task definition, which is an immutable blueprint that never changes. In Lab 06 it is attached to the **service** (`usms-enrolment-svc`), registered as a scalable target. It only changes one number, the service's `desiredCount`. The **service** then does the real work, starting or stopping tasks until the running count matches. Because ECS knows nothing about the scalable target, `describe-services` shows no scaling settings at all; the only visible sign is the desired count changing, and the scaling settings can only be seen through the Application Auto Scaling commands.
+
+**2. Lab 1 wrote USMSStudentDataReadWrite for a bucket that did not exist. Lab 3 attached it to an EC2 instance via an instance profile. This lab attached the same policy, unchanged, to a Fargate task via a task role. Explain in a full paragraph what each of the two delivery mechanisms actually does at runtime, why neither needs a key on disk, and precisely what changes for both the moment a bucket finally exists at that ARN. This is the most important connection in the course; answer it properly.**
+
+On EC2, the instance profile places `usms-ec2-app-role` on the instance, and the instance metadata service hands short lived credentials for that role to any program on the server. On Fargate, the task role `usms-ecs-task-role` is given to the container, and ECS provides short lived credentials to the application through an endpoint inside the task. In both cases AWS creates the credentials and replaces them automatically before they expire, so no access key is ever written to disk or stored in code. The same policy is attached to both roles without change, because a policy refers to the bucket's ARN, not to an existing bucket. Today that permission does nothing, since nothing exists at `arn:aws:s3:::usms-student-data`. The moment the bucket is created at that ARN, both the web server and the enrolment tasks can read and write it immediately, with no change to either role, the policy, the instance or the task definition.
+
+**3. The interlude before Step 6 distinguishes the task execution role from the task role. Give a one-sentence failure symptom for each that a colleague could use to tell them apart without reading any documentation, and explain why both roles share an identical trust policy despite doing completely different jobs.**
+
+If the **execution role** is wrong, the task never starts, and the stop reason mentions pulling the image or creating the log stream. If the **task role** is wrong, the task starts normally, but the application gets `AccessDenied` when it calls S3. Both trust `ecs-tasks.amazonaws.com` because the same ECS service assumes both of them; the difference is not who uses them, but when and for what: one before the container starts, the other while the application runs.
+
+**4. Step 8 sources the enrolment security group's only inbound rule from usms-app-sg, not from a CIDR block. Explain why this choice would still be correct even if this service's task count never changed, and then explain the additional reason it becomes close to mandatory once Lab 06 lets the task count change on its own.**
+
+Even with a fixed count, a group reference is more precise: it allows only servers carrying `usms-app-sg`, not every address in a subnet range, and it keeps working if the web server is replaced and gets a new IP, as happened in Lab 03. Once Lab 06 adds auto scaling, tasks will be created and removed automatically with new IPs each time, so a rule based on IP addresses would be out of date within minutes. A group reference needs no updating, because it follows whatever carries the group.
+
+**5. Explain what Fargate removes from the EC2 model this course used in Lab 3, and what it explicitly does not remove. Use the fact that a Fargate task in awsvpc mode still has its own security group and still obeys Lab 2's route tables to make the second half of the answer concrete.**
+
+Fargate removes the servers: there are no instances to choose, patch, scale or log in to, no AMIs or key pairs, and payment is per task. It does not remove the network. Each task gets its own network interface in a Lab 02 subnet, protected by its own security group (`usms-enrolment-sg`), and it follows the private route table. That is why the tasks needed the Lab 02 NAT gateway to pull their image; without it, they would fail to start.
+
+**6. Lab 1 Step 14 proved that "the account identity is unchanged after a restart" is not evidence of persistence, because the root ARN is a constant regardless of storage mode. Apply the same scepticism here: name one command against this lab's own resources that would look identical whether Floci is running in memory mode or hybrid mode, and one command that would not, and explain the difference.**
+
+`aws ecs list-clusters` run straight after creating the cluster looks the same in both modes, because the cluster exists in memory until Floci stops. After a Floci restart, `aws ecs describe-services --cluster usms-ecs-cluster --services usms-enrolment-svc` is different: in hybrid mode it still returns the service with a desired count of 2, but in memory mode the cluster is gone and the command fails. Only a check made after a restart proves that data was actually saved.
+
+### Files
+
+1. `templates/lab-04-taskdef.json`, `lab-04-taskdef-rev1.json`, `lab-04-taskdef-rev2.json`
+2. `policies/trust-ecs-tasks.json`, `usms-ecs-task-execution-policy.json`, `usms-enrolment-sg-ingress.json`
+3. `configs/lab-04.env`
+4. `scripts/utilities/verify-lab-04.sh`, `lab-04-ecs-inventory.sh`
+5. `scripts/cleanup/lab-04-cleanup.sh` (not run)
+6. Pricing source: [AWS Fargate Pricing](https://aws.amazon.com/fargate/pricing/)
