@@ -29,6 +29,7 @@ check() {
   else printf "  FAIL %s\n" "$1"; FAIL=$((FAIL+1)); fi
 }
 
+# svc <jmespath>  -> one field from the ECS service
 svc() { aws ecs describe-services --cluster "$USMS_ECS_CLUSTER" \
           --services "$USMS_ENROLMENT_SERVICE" --query "services[0].$1" --output text; }
 
@@ -109,7 +110,7 @@ check "execution policy is valid JSON" \
   "python3 -m json.tool policies/usms-ecs-task-execution-policy.json"
 check "no task definition document contains an unexpanded variable" \
   "! grep -q '[$]' templates/lab-04-taskdef.json"
-check "no secret is tracked by git" "! git ls-files | grep -q '^outputs/'"
+check "no secret is tracked by git" "! git ls-files outputs/ | grep -qv '^outputs/.gitkeep$'"
 
 echo; echo "PASS=$PASS  FAIL=$FAIL"
 [ "$FAIL" -eq 0 ]
