@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # END OF COURSE ONLY. Removes Lab 05, dependencies first.
 # Order: service -> rules -> listener -> load balancer -> target group -> security group.
-# Run AFTER scripts/cleanup/lab-06-cleanup.sh and BEFORE scripts/cleanup/lab-06-cleanup.sh.
+# Run AFTER scripts/cleanup/lab-06-cleanup.sh and BEFORE scripts/cleanup/lab-04-cleanup.sh.
 set -Eeuo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -21,7 +21,7 @@ cat <<'WARN'
   of it. None of this is reversible.
 
   Run AFTER  lab-06-cleanup.sh
-  Run BEFORE lab-06-cleanup.sh
+  Run BEFORE lab-04-cleanup.sh
 ============================================================
 WARN
 
@@ -73,4 +73,4 @@ aws ec2 delete-security-group --group-id "$USMS_ALB_SG" || \
   echo "  still in use - wait for the load balancer's ENIs to be released, then retry"
 
 echo
-echo "Lab 05 teardown complete. scripts/cleanup/lab-06-cleanup.sh may now run."
+echo "Lab 05 teardown complete. scripts/cleanup/lab-04-cleanup.sh may now run."
